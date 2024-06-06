@@ -1,6 +1,8 @@
+[TOC]
+
 # Docker多架构镜像构建实战记录
 
-## 问题场景
+## 1. 问题场景
 
 基于K3S构建的私有容器云环境中，当前存在linux/amd64(Intel X86_64),linux/arm64(飞腾CPU+银河麒麟V10系统),linux/mips64le(龙芯CPU+中标麒麟V5) 三种架构的机器。在这个环境中部署的java服务镜像需要支持在三种架构的机器上都能运行，因此需要制作多架构镜像。
 
@@ -8,7 +10,7 @@
 
 下文记录构建多架构镜像的实战过程。
 
-### 基于docker manifest构建多架构debian基础镜像
+## 2. 基于docker manifest构建多架构debian基础镜像
 
 构建java服务镜像所需的基础镜像需要支持多架构，以便我们基于不同架构的基础镜像构建服务镜像。
 
@@ -112,7 +114,7 @@ docker pull 192.168.41.96:5000/debian:bullseye-multiv1
 docker image inspect 192.168.41.96:5000/debian:bullseye-multiv1
 ```
 
-### 基于debian构建JDK8多架构镜像
+## 3. 基于debian构建JDK8多架构镜像
 
 我们的java服务基于JDK8开发，需要在debian中安装JDK8，以便运行java服务。
 
@@ -120,7 +122,7 @@ docker image inspect 192.168.41.96:5000/debian:bullseye-multiv1
 
 docker buildx可以在一台主机上使用qemu模拟来构建非本机架构的镜像，此功能需要Linux内核版本>=4.8，docker版本>=19.03。内网中当前使用的linux/arm64的主机内核为4.19，docker版本为19.03，满足要求。
 
-#### docker buildx安装
+### 3.1 docker buildx安装
 
 内网主机使用的二进制方式安装的docker，未包含buildx客户端插件，需自行安装。桌面版Docker-Desktop安装时会包含此插件。
 
@@ -140,7 +142,7 @@ mv docker-buildx /root/.docker/cli-plugins
 docker buildx --help
 ```
 
-#### 开启qemu内核支持
+### 3.2 开启qemu内核支持
 
 需要拉取tonistiigi/binfmt镜像，通过这个镜像开启内核特性以支持多架构构建。
 
@@ -158,7 +160,7 @@ docker load -i binfmt.tar
 docker run --privileged --rm tonistiigi/binfmt --install all
 ```
 
-#### 使用buildx构建多架构镜像
+### 3.3 使用buildx构建多架构镜像
 
 docker buildx命令执行时调用的后端为`moby/buildkit`容器服务，因此也需要先把镜像导入内网。
 
@@ -227,3 +229,23 @@ docker pull moby/buildkit:buildx-stable-1
     ```
 
     此时通过`docker manifest inspect`命令即可查看镜像仓库中的`debian-jdk8-multi:v1`镜像，发现其已支持多架构。
+
+## 4. 构建java服务镜像
+
+安装好JDK环境的debian镜像我们已经制作完毕，接下来就可以构建java服务镜像了。
+Dockerfile内容如下：
+
+```Dockerfile
+FROM --platform=$TARGETPLATFORM 192.168.41.96:5000/debian-jdk8-multi:v1
+```
+
+构建镜像命令如下：
+```shell
+docker buildx build -t 192.168.41.96:5000/java-app:v1 --platform linux/arm64,linux/amd64,linux/mips64le --push -f Dockerfile .
+```
+
+至此，java服务镜像的构建工作就完成了。可以在不同架构的主机上拉取java服务镜像，验证是否拉取的为本机架构的镜像，然后run镜像即可。
+
+
+## 参考链接
+* [多架构镜像](https://www.zhaowenyu.com/docker-doc/best-practices/mult-arch-image.html)
